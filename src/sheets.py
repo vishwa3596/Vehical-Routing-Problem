@@ -24,7 +24,7 @@ class GetData:
         # Call the Sheets API
         sheet = service.spreadsheets()
         result = sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID,
-            range="VRP!A1:D4").execute()
+            range="Sample!A1:E5").execute()
         # values = result.get('values', [])
         # print(result['values'])
         self.dist = result['values']

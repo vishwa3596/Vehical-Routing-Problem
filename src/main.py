@@ -5,17 +5,25 @@ import random
 import math
 import sys
 from sheets import GetData
+from optimisation_advanced import *
+import argparse
 
+global args
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Next Replenishment Optimisation')
+    parser.add_argument('--bank_branch', default='sample_branch', type=str,required=False, help='mention the bank branch for which replenishment gaps is to be obtained')
+    args = parser.parse_args()
+    return args
 
 class OptimalPath:
 
   def __init__(self):
     self.N_V = 2
-    self.V_C = 8
+    self.V_C = 8000000000000000
     self.Cost=0
     self.setValues()
-    self.setNode()
-    self.setVehical()
+
 
   def setValues(self):
     obj = GetData()
@@ -30,10 +38,46 @@ class OptimalPath:
       for j in range(0,self.N_C):
         D = int(data[i][j])
         self.dist[i][j] = D
-        self.dist[j][i] =D
+        self.dist[j][i] = D
 
 
-  def setNode(self):
+  def RunningOnSubgraph(self):
+    global args
+    forecast = get_forecast(args.bank_branch)
+    print(args.bank_branch)
+    listofatm = get_drain_out_day(forecast)
+    listofatm = [[2,3,4],[],[],[]]
+    FinalReturnList= []
+    for i in range(0, len(listofatm)):
+      if(len(listofatm[i]) != 0):
+        RequiredAtm = listofatm[i]
+        print(RequiredAtm)
+        
+        self.setNode(RequiredAtm)
+        AtmToFill= []
+        for i in range(0, len(RequiredAtm)):
+          res = {
+            "atmid": RequiredAtm[i],
+            "deposited": self.Node[RequiredAtm[i]]["demand"]
+          }
+          AtmToFill.append(res)
+        self.setVehical()
+        path = []
+
+        path.append(self.greedy_sol())
+        path.append(self.IntraLocalSearch())
+        path.append(self.InterLocalSearch())
+
+        res = {
+          "AtmsToBeFilled": AtmToFill,
+          "Paths": path
+        }
+        FinalReturnList.append(res)
+
+    print(FinalReturnList)
+
+
+  def setNode(self, RequiredAtm):
     D = {
       "id": 0,
       "x": 0,
@@ -47,12 +91,19 @@ class OptimalPath:
     for i in range(1,self.N_C):
       x = int(random.random()*100)
       y = int(random.random()*100)
-      demand = i
+      demand = 0
+      isused = False
+      for j in range(0, len(RequiredAtm)):
+         if i == RequiredAtm[j]:
+           isused = True  
+           break  
+      if isused:
+        demand = i       
       D = {
         "id": i,
         "x": x,
         "y": y,
-        "ID": False,
+        "ID": isused,
         "IR": False,
         "demand": demand
       }
@@ -80,7 +131,7 @@ class OptimalPath:
 
   def UCE(self):
     for i in range(1,self.N_C):
-      if self.Node[i]["IR"]==False:
+      if self.Node[i]["IR"] == False and self.Node[i]["ID"] == True:
         return True
     return False
 
@@ -103,7 +154,7 @@ class OptimalPath:
         self.VR[Vid].append(self.Node[0]["id"])
         self.VR1[Vid].append(self.Node[0]["id"])
       for i in range(1,self.N_C):
-        if(self.Node[i]["IR"] == False):
+        if(self.Node[i]["IR"] == False and self.Node[i]["ID"] == True):
           if(self.check_if_fits(Vid,self.Node[i]["demand"])):
             CandCost = self.dist[self.V[Vid]["curloc"]][i]
             if(MinCost  > CandCost):
@@ -139,10 +190,52 @@ class OptimalPath:
     self.VR1[Vid].append(0)
     self.Cost = self.Cost+EndCost
 
-    return self.Printans(" Greedy ", self.Calculate())
+    print(self.Printans(" Greedy ", self.Calculate()))
+    self.FindingIntermediate()
+    return (self.Printans1(" Greedy Path Relaxation ", self.Calculate1()))
 
 
+  def FindingIntermediate(self):
+    for vehicalIndex in range(0, self.N_V):
+      vehicalRoute = self.VR1[vehicalIndex]
+      a = vehicalIndex
+      Max_Iteration = 10
+      Number_of_Iteration = 0
+      Termination = False
+      while Termination == False:
+        Number_of_Iteration += 1
+        for i in range(1, len(vehicalRoute)):
+          firstnode = vehicalRoute[i-1]
+          secondnode = vehicalRoute[i]
+          BestCost = 100000
+          InsertedNode=0
+          Index = -1
+          for betweennode in range(0, self.N_C):
+            if(self.Node[betweennode]["ID"] == False):
+              MinusCost = self.dist[firstnode][secondnode]
+              Addcost1 = self.dist[firstnode][betweennode]
+              AddCost2 = self.dist[betweennode][secondnode]
 
+              cost = AddCost2+Addcost1-MinusCost
+
+              if(BestCost > cost):
+                InsertedNode = self.Node[betweennode]["id"]
+                Index = betweennode
+                BestCost = cost
+          if(BestCost < 0):
+            self.VR1[vehicalIndex].insert(InsertedNode, Index)
+          else:
+            if Number_of_Iteration == Max_Iteration:
+              Termination = True
+            else:
+              Termination = True
+        if Number_of_Iteration == Max_Iteration:
+          Termination = True
+      
+    for i in range(0, self.N_V):
+      if(len(self.VR1[i]) != 0):
+        self.VR[i] = self.VR1[i]
+        print(self.VR[i])
 
   def IntraLocalSearch(self):
     global rt
@@ -204,7 +297,9 @@ class OptimalPath:
       if(iteration_number == MaxIteration):
         Termination = True
 
-    return self.Printans1("IntraLocal",self.Calculate1())
+    print(self.Printans1("IntraLocal",self.Calculate1()))
+    self.FindingIntermediate()
+    return(self.Printans1(" IntraLocal Path Relaxation ", self.Calculate1()))
 
 
   def InterLocalSearch(self):
@@ -308,7 +403,7 @@ class OptimalPath:
         Termination = True
     #print("INTER",' ',ans)
 
-    return self.Printans("InterLocal Search ",self.Calculate())
+    return (self.Printans("InterLocal Search ",self.Calculate()))
 
   def Calculate(self):
     Res = 0
@@ -316,6 +411,7 @@ class OptimalPath:
       if(len(self.VR[i])):
         for j in range(1,len(self.VR[i])):
           Res += self.dist[self.VR[i][j-1]][self.VR[i][j]]
+          print(" calculate1 ", self.VR1[i][j], " ", self.VR1[i][j-1], " dis ", self.dist[self.VR1[i][j-1]][self.VR1[i][j]])
     return Res
 
   def Calculate1(self):
@@ -324,6 +420,7 @@ class OptimalPath:
       if(len(self.VR1[i])):
         for j in range(1,len(self.VR1[i])):
           Res += self.dist[self.VR1[i][j-1]][self.VR1[i][j]]
+          print(" calculate1 ", self.VR1[i][j], " ", self.VR1[i][j-1], " dis ", self.dist[self.VR1[i][j-1]][self.VR1[i][j]])
     return Res
 
 
@@ -350,19 +447,11 @@ class OptimalPath:
         }
     return ans
 
-
-
-# sm = OptimalPath()
-# sm.greedy_sol()
-# sm.InterLocalSearch()
-# sm.IntraLocalSearch()
-
-
 def main():
+  global args
+  args = parse_arguments()
   sm = OptimalPath()
-  sm.greedy_sol()
-  sm.IntraLocalSearch()
-  sm.InterLocalSearch()
+  print(sm.RunningOnSubgraph())
 
 if __name__ == "__main__":
   main()
